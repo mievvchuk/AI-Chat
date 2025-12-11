@@ -3,6 +3,7 @@
 import os
 import asyncio
 import re
+from html import escape as html_escape  # для безпечного HTML
 
 from groq import Groq
 from aiogram import Bot, Dispatcher, types
@@ -94,6 +95,41 @@ CODE_BLOCK_RE = re.compile(r"```(?:\w+)?\n(.*?)```", re.DOTALL)
 
 def extract_code_blocks(text: str):
     return CODE_BLOCK_RE.findall(text)
+
+
+# ===========================
+# 🌐 Перетворення Markdown → HTML для Telegram
+# ===========================
+def format_html(text: str) -> str:
+    """
+    1) ```lang\n...\n``` → <pre><code class="language-lang">...</code></pre>
+    2) **жирний** → <b>жирний</b>
+    3) *курсив* → <i>курсив</i>
+    """
+
+    # 1. Код-блоки
+    code_pattern = re.compile(r"```(\w+)?\n(.*?)```", re.DOTALL)
+
+    def code_repl(match: re.Match) -> str:
+        lang = match.group(1) or ""
+        code = match.group(2)
+        # Екрануємо HTML та прибираємо можливість зловити **всередині коду
+        escaped = html_escape(code).replace("*", "&#42;")
+        if lang:
+            return f'<pre><code class="language-{lang}">{escaped}</code></pre>'
+        else:
+            return f"<pre><code>{escaped}</code></pre>"
+
+    text = code_pattern.sub(code_repl, text)
+
+    # 2. Жирний текст **...**
+    text = re.sub(r"\*\*(.+?)\*\*", r"<b>\1</b>", text, flags=re.DOTALL)
+
+    # 3. Курсив *...* (обережно, щоб не чіпати вже оброблений <b>)
+    text = re.sub(r"\*(.+?)\*", r"<i>\1</i>", text, flags=re.DOTALL)
+
+    # Telegram HTML нормально сприймає \n як переноси рядків
+    return text
 
 
 # ===========================
@@ -281,7 +317,8 @@ async def _explain_code_internal(m: types.Message, state: FSMContext, code: str)
     resp = await asyncio.to_thread(_call)
     reply = resp.choices[0].message.content
 
-    await m.answer(reply)
+    html = format_html(reply)
+    await m.answer(html, parse_mode="HTML")
 
     blocks = extract_code_blocks(reply)
     await state.update_data(last_reply=reply, last_code_blocks=blocks)
@@ -324,7 +361,8 @@ async def menu_reformat_answer(m: types.Message, state: FSMContext):
     resp = await asyncio.to_thread(_call)
     reply = resp.choices[0].message.content
 
-    await m.answer(reply)
+    html = format_html(reply)
+    await m.answer(html, parse_mode="HTML")
 
     blocks = extract_code_blocks(reply)
     await state.update_data(last_reply=reply, last_code_blocks=blocks)
@@ -385,7 +423,8 @@ async def handle(m: types.Message, state: FSMContext):
     if wrap_code_flag:
         reply = wrap_code_blocks(reply)
 
-    await m.answer(reply)
+    html = format_html(reply)
+    await m.answer(html, parse_mode="HTML")
 
     history.append({"role": "assistant", "content": reply})
     code_blocks = extract_code_blocks(reply)
