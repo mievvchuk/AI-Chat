@@ -1,4 +1,4 @@
-# ai_groq_chat_full.py
+# ai.py
 
 import os
 import asyncio
@@ -64,7 +64,7 @@ def detect_language(text: str) -> str:
 
 
 # ===========================
-# 📦 Автоматичне огортання всього тексту в ```код``` (якщо це схоже на код)
+# 📦 Автоматичне огортання тексту в ```код``` (якщо схоже на код)
 # ===========================
 def wrap_code_blocks(text: str) -> str:
     if "```" in text:
@@ -248,11 +248,9 @@ async def menu_explain_code(m: types.Message, state: FSMContext):
     blocks = data.get("last_code_blocks") or []
 
     if blocks:
-        # беремо найбільший кодовий блок з останньої відповіді
         code = max(blocks, key=len)
         await _explain_code_internal(m, state, code)
     else:
-        # немає збереженого коду — просимо надіслати
         await state.update_data(awaiting_code_explain=True)
         await m.answer("Надішли код, який потрібно пояснити.")
 
@@ -276,7 +274,6 @@ async def _explain_code_internal(m: types.Message, state: FSMContext, code: str)
             model=MODELS[model_key],
             messages=messages,
             temperature=0.4,
-            max_completion_tokens=1024,
             top_p=1,
         )
 
@@ -286,7 +283,6 @@ async def _explain_code_internal(m: types.Message, state: FSMContext, code: str)
 
     await m.answer(reply)
 
-    # оновимо останню відповідь / код
     blocks = extract_code_blocks(reply)
     await state.update_data(last_reply=reply, last_code_blocks=blocks)
 
@@ -321,7 +317,6 @@ async def menu_reformat_answer(m: types.Message, state: FSMContext):
             model=MODELS[model_key],
             messages=messages,
             temperature=0.3,
-            max_completion_tokens=1024,
             top_p=1,
         )
 
@@ -340,8 +335,9 @@ async def menu_reformat_answer(m: types.Message, state: FSMContext):
 # ===========================
 @dp.message(Chat.chatting)
 async def handle(m: types.Message, state: FSMContext):
-    # Якщо ми чекаємо код для пояснення
     data = await state.get_data()
+
+    # Якщо чекаємо код для пояснення
     if data.get("awaiting_code_explain"):
         await state.update_data(awaiting_code_explain=False)
         code_text = m.text
@@ -355,7 +351,7 @@ async def handle(m: types.Message, state: FSMContext):
     answer_mode = data.get("answer_mode", DEFAULT_ANSWER_MODE)
     wrap_code_flag = data.get("wrap_code", True)
 
-    # очищаємо історію від технічних плейсхолдерів (на всякий випадок)
+    # очищаємо історію від технічних плейсхолдерів (про всяк випадок)
     clean_history = []
     for msg in history:
         if "__CB_" not in msg.get("content", ""):
@@ -380,20 +376,17 @@ async def handle(m: types.Message, state: FSMContext):
             model=MODELS[model_key],
             messages=messages,
             temperature=0.7,
-            max_completion_tokens=2048,
             top_p=1,
         )
 
     resp = await asyncio.to_thread(_call)
     reply = resp.choices[0].message.content
 
-    # Авто-обгортання коду (опційно)
     if wrap_code_flag:
         reply = wrap_code_blocks(reply)
 
     await m.answer(reply)
 
-    # Оновимо історію та останню відповідь
     history.append({"role": "assistant", "content": reply})
     code_blocks = extract_code_blocks(reply)
 
