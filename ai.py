@@ -1,5 +1,5 @@
 # ai_groq_chat_safe_markdown.py
-
+import os
 import asyncio
 import re
 from openai import AsyncOpenAI
